@@ -1,1 +1,1 @@
-试用下来问题挺多：样本量计算器 MDE=0 时直接显示 Infinity；详情页点模拟数据后转化率 0% 或 NaN，独立访客一直显示 0/1；变体编辑器改按钮文案保存后还是旧文案，hero 图片上传同理；定向投放里加地理位置规则没用，配了北京用户还是全量；分层机制整段是空函数；目标事件字段没做必填，能存空串进去跑空实验。检查修复一下。
+深挖还有 5 个坑：分桶直接 Math.random 没用 visitorId 哈希，清缓存就换桶；checkLayerAssignment 永远 return true 是空函数；geolocation 规则 default 直接 pass，配北京等于全开；变体编辑器连续 onChange 第二次拿到的是旧 html；iframe sandbox 加了 allow-same-origin 反而放开父页面访问。检查修复一下。
