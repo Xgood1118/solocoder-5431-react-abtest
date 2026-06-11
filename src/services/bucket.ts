@@ -7,13 +7,36 @@ import type {
   ExperimentLayer,
 } from '../types'
 
-function weightedRandom(variants: Variant[]): Variant {
+function hashString(str: string): number {
+  let hash = 0
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i)
+    hash = ((hash << 5) - hash) + char
+    hash = hash & hash
+  }
+  return Math.abs(hash)
+}
+
+function normalizeHash(hash: number): number {
+  return hash / 2147483647
+}
+
+function weightedHashSelect(
+  variants: Variant[],
+  visitorId: string,
+  experimentId: string
+): Variant {
+  const hashKey = `${visitorId}-${experimentId}`
+  const hash = hashString(hashKey)
+  const random = normalizeHash(hash)
+
   const totalWeight = variants.reduce((sum, v) => sum + v.weight, 0)
-  let random = Math.random() * totalWeight
+  let cumulative = 0
+  const target = random * totalWeight
 
   for (const variant of variants) {
-    random -= variant.weight
-    if (random <= 0) return variant
+    cumulative += variant.weight
+    if (target <= cumulative) return variant
   }
 
   return variants[variants.length - 1]
@@ -28,6 +51,9 @@ function checkTargeting(experiment: Experiment): boolean {
   const isIOS = /iphone|ipad|ipod/.test(ua)
   const isAndroid = /android/.test(ua)
   const isMobile = isIOS || isAndroid
+
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || ''
+  const language = navigator.language.toLowerCase()
 
   for (const rule of experiment.targetingRules) {
     let matches = false
@@ -46,8 +72,29 @@ function checkTargeting(experiment: Experiment): boolean {
       case 'browser':
         matches = rule.values.some(v => ua.includes(v.toLowerCase()))
         break
+      case 'geolocation':
+        matches = rule.values.some(v => {
+          const val = v.toLowerCase()
+          const tzLower = timezone.toLowerCase()
+          if (val === 'beijing' || val === 'beijing' || val === '北京') {
+            return tzLower.includes('asia/shanghai') || tzLower.includes('asia/chongqing')
+          }
+          if (val === 'shanghai' || val === '上海') {
+            return tzLower.includes('asia/shanghai')
+          }
+          if (val === 'china' || val === '中国' || val === 'cn') {
+            return tzLower.includes('asia/') && (
+              tzLower.includes('shanghai') ||
+              tzLower.includes('chongqing') ||
+              tzLower.includes('urumqi') ||
+              language.startsWith('zh')
+            )
+          }
+          return false
+        })
+        break
       default:
-        matches = true
+        matches = false
     }
 
     if (rule.operator === 'include' && !matches) return false
@@ -63,13 +110,8 @@ function checkRollout(experiment: Experiment): boolean {
   if (rolloutPct <= 0) return false
 
   const visitorId = getVisitorId()
-  let hash = 0
-  for (let i = 0; i < visitorId.length; i++) {
-    const char = visitorId.charCodeAt(i)
-    hash = ((hash << 5) - hash) + char
-    hash = hash & hash
-  }
-  const normalized = Math.abs(hash) / 2147483647
+  const hash = hashString(`${visitorId}-rollout-${experiment.id}`)
+  const normalized = normalizeHash(hash)
   return normalized * 100 < rolloutPct
 }
 
@@ -99,7 +141,20 @@ function checkLayerAssignment(
   experiment: Experiment,
   visitorId: string
 ): boolean {
-  return true
+  if (!experiment.layerId) return true
+
+  const layers = storage.getLayers()
+  const layer = layers.find(l => l.id === experiment.layerId)
+  if (!layer) return true
+
+  const visitors = storage.getVisitors()
+  const assignedInLayer = visitors.filter(v =>
+    v.visitorId === visitorId &&
+    layer.experimentIds.includes(v.experimentId) &&
+    v.experimentId !== experiment.id
+  )
+
+  return assignedInLayer.length === 0
 }
 
 export function assignVariant(experiment: Experiment): Variant | null {
@@ -128,7 +183,11 @@ export function assignVariant(experiment: Experiment): Variant | null {
     if (variant) return variant
   }
 
-  const assignedVariant = weightedRandom(experiment.variants)
+  const assignedVariant = weightedHashSelect(
+    experiment.variants,
+    visitorId,
+    experiment.id
+  )
 
   const newRecord: VisitorRecord = {
     visitorId,

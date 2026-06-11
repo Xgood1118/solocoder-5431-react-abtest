@@ -5,6 +5,7 @@ import {
   createExperiment,
   saveExperiment,
   getExperiment,
+  generateMVTVariants,
 } from '../services/experiment'
 import { storage } from '../services/storage'
 import type {
@@ -42,8 +43,11 @@ export default function ExperimentForm() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!formData) return
-    saveExperiment(formData)
-    navigate(`/experiments/${formData.id}`)
+    const toSave = formData.mvtConfig.enabled
+      ? { ...formData, variants: generateMVTVariants(formData) }
+      : formData
+    saveExperiment(toSave)
+    navigate(`/experiments/${toSave.id}`)
   }
 
   const updateField = <K extends keyof Experiment>(key: K, value: Experiment[K]) => {

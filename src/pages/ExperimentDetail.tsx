@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { getExperiment, saveExperiment } from '../services/experiment'
 import {
@@ -8,7 +8,8 @@ import {
 } from '../services/stats'
 import { exportReportPDF, generateReportData } from '../services/report'
 import { trackEvent } from '../services/event'
-import type { Experiment, Variant, ExperimentStats, SignificanceResult } from '../types'
+import { storage } from '../services/storage'
+import type { Experiment, Variant, ExperimentStats, SignificanceResult, VisitorRecord } from '../types'
 import VariantEditor from '../components/VariantEditor'
 import StatsDashboard from '../components/StatsDashboard'
 import './ExperimentDetail.css'
@@ -21,6 +22,7 @@ export default function ExperimentDetail() {
   const [selectedVariantId, setSelectedVariantId] = useState<string>('')
   const [stats, setStats] = useState<ExperimentStats | null>(null)
   const [significance, setSignificance] = useState<SignificanceResult | null>(null)
+  const chartRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!id) return
@@ -72,26 +74,39 @@ export default function ExperimentDetail() {
   const handleExportReport = async () => {
     if (!experiment || !stats) return
     const reportData = generateReportData(experiment, stats, significance)
-    await exportReportPDF(reportData)
+    await exportReportPDF(reportData, chartRef.current)
   }
 
   const handleSimulateData = () => {
     if (!experiment) return
     const goalEvent = experiment.goalEvent
+    const existingVisitors = storage.getVisitors()
+
+    const newVisitorRecords: VisitorRecord[] = []
 
     experiment.variants.forEach(variant => {
       const visits = Math.floor(Math.random() * 50) + 20
       for (let i = 0; i < visits; i++) {
-        const visitorId = `sim-${variant.id}-${i}-${Date.now()}`
-        trackEvent('page_view', experiment.id, variant.id, { simulated: true })
+        const simVisitorId = `sim-${variant.id.slice(0, 8)}-${i}-${Date.now()}`
+
+        trackEvent('page_view', experiment.id, variant.id, { simulated: true }, simVisitorId)
+
+        newVisitorRecords.push({
+          visitorId: simVisitorId,
+          experimentId: experiment.id,
+          variantId: variant.id,
+          assignedAt: Date.now(),
+          firstSeen: Date.now(),
+        })
 
         const conversionRate = 0.1 + Math.random() * 0.2
         if (Math.random() < conversionRate) {
-          trackEvent(goalEvent, experiment.id, variant.id, { simulated: true })
+          trackEvent(goalEvent, experiment.id, variant.id, { simulated: true }, simVisitorId)
         }
       }
     })
 
+    storage.setVisitors([...existingVisitors, ...newVisitorRecords])
     refreshStats(experiment)
   }
 
@@ -251,7 +266,7 @@ export default function ExperimentDetail() {
 
       <div className="tab-content">
         {activeTab === 'dashboard' && stats && (
-          <div className="dashboard-tab">
+          <div className="dashboard-tab" ref={chartRef}>
             <StatsDashboard
               stats={stats}
               significance={significance}

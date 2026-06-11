@@ -22,25 +22,34 @@ export function generateReportData(
   }
 }
 
-export async function exportReportPDF(report: ReportData): Promise<void> {
+export async function exportReportPDF(
+  report: ReportData,
+  chartElement?: HTMLElement | null
+): Promise<void> {
   const doc = new jsPDF()
 
   const pageWidth = doc.internal.pageSize.getWidth()
+  const pageHeight = doc.internal.pageSize.getHeight()
+  const margin = 14
   let y = 20
 
   doc.setFontSize(20)
   doc.setFont('helvetica', 'bold')
-  doc.text('A/B 测试实验报告', pageWidth / 2, y, { align: 'center' })
+  doc.text('A/B Test Report', pageWidth / 2, y, { align: 'center' })
   y += 15
 
   doc.setFontSize(10)
   doc.setFont('helvetica', 'normal')
-  doc.text(`生成时间: ${new Date(report.generatedAt).toLocaleString('zh-CN')}`, 14, y)
+  doc.text(
+    `Generated: ${new Date(report.generatedAt).toLocaleString('zh-CN')}`,
+    margin,
+    y
+  )
   y += 15
 
   doc.setFontSize(14)
   doc.setFont('helvetica', 'bold')
-  doc.text('一、实验概述', 14, y)
+  doc.text('1. Experiment Overview', margin, y)
   y += 10
 
   doc.setFontSize(10)
@@ -48,90 +57,139 @@ export async function exportReportPDF(report: ReportData): Promise<void> {
   const exp = report.experiment
 
   const summaryLines = [
-    `实验名称: ${exp.name}`,
-    `实验描述: ${exp.description || '无'}`,
-    `实验状态: ${getExperimentStatusText(exp.status)}`,
-    `开始日期: ${exp.startDate}`,
-    `结束日期: ${exp.endDate || '未设置'}`,
-    `目标事件: ${exp.goalEvent}`,
-    `变体数量: ${exp.variants.length}`,
-    `当前放量: ${exp.trafficAllocation.rolloutPercentage}%`,
+    `Name: ${exp.name}`,
+    `Description: ${exp.description || 'N/A'}`,
+    `Status: ${getExperimentStatusText(exp.status)}`,
+    `Start Date: ${exp.startDate}`,
+    `End Date: ${exp.endDate || 'N/A'}`,
+    `Goal Event: ${exp.goalEvent}`,
+    `Variants: ${exp.variants.length}`,
+    `Traffic: ${exp.trafficAllocation.rolloutPercentage}%`,
   ]
 
   for (const line of summaryLines) {
-    doc.text(line, 14, y)
+    doc.text(line, margin, y)
     y += 7
   }
   y += 10
 
   doc.setFontSize(14)
   doc.setFont('helvetica', 'bold')
-  doc.text('二、变体数据对比', 14, y)
+  doc.text('2. Variant Comparison', margin, y)
   y += 10
 
   doc.setFontSize(10)
   doc.setFont('helvetica', 'bold')
-  doc.text('变体名称', 14, y)
-  doc.text('访问量', 70, y)
-  doc.text('独立访客', 100, y)
-  doc.text('转化量', 130, y)
-  doc.text('转化率', 160, y)
+  doc.text('Variant', margin, y)
+  doc.text('Visits', 65, y)
+  doc.text('UV', 90, y)
+  doc.text('Conv.', 115, y)
+  doc.text('CVR', 140, y)
   y += 7
 
   doc.setFont('helvetica', 'normal')
   for (const stat of report.stats.variantStats) {
-    doc.text(stat.variantName.substring(0, 15), 14, y)
-    doc.text(String(stat.visits), 70, y)
-    doc.text(String(stat.uniqueVisitors), 100, y)
-    doc.text(String(stat.conversions), 130, y)
-    doc.text(`${(stat.conversionRate * 100).toFixed(2)}%`, 160, y)
+    if (y > pageHeight - 20) {
+      doc.addPage()
+      y = 20
+    }
+    doc.text(stat.variantName.substring(0, 12), margin, y)
+    doc.text(String(stat.visits), 65, y)
+    doc.text(String(stat.uniqueVisitors), 90, y)
+    doc.text(String(stat.conversions), 115, y)
+    doc.text(`${(stat.conversionRate * 100).toFixed(2)}%`, 140, y)
     y += 7
   }
   y += 10
 
+  if (chartElement) {
+    try {
+      const canvas = await html2canvas(chartElement, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#ffffff',
+        logging: false,
+      })
+
+      const imgData = canvas.toDataURL('image/png')
+      const imgWidth = pageWidth - margin * 2
+      const imgHeight = (canvas.height * imgWidth) / canvas.width
+
+      if (y + imgHeight > pageHeight - 20) {
+        doc.addPage()
+        y = 20
+      }
+
+      doc.setFontSize(14)
+      doc.setFont('helvetica', 'bold')
+      doc.text('3. Conversion Rate Chart', margin, y)
+      y += 10
+
+      doc.addImage(imgData, 'PNG', margin, y, imgWidth, imgHeight)
+      y += imgHeight + 15
+    } catch (e) {
+      console.warn('[ABTest] Chart capture failed:', e)
+    }
+  }
+
   if (report.significance) {
+    if (y > pageHeight - 60) {
+      doc.addPage()
+      y = 20
+    }
+
+    const sectionNum = chartElement ? '4' : '3'
     doc.setFontSize(14)
     doc.setFont('helvetica', 'bold')
-    doc.text('三、统计显著性分析', 14, y)
+    doc.text(`${sectionNum}. Statistical Significance`, margin, y)
     y += 10
 
     doc.setFontSize(10)
     doc.setFont('helvetica', 'normal')
 
     const sig = report.significance
-    doc.text(`P 值: ${sig.pValue.toFixed(6)}`, 14, y)
+    doc.text(`P-value: ${sig.pValue.toFixed(6)}`, margin, y)
     y += 7
-    doc.text(`Z 值: ${sig.zScore.toFixed(4)}`, 14, y)
+    doc.text(`Z-score: ${sig.zScore.toFixed(4)}`, margin, y)
     y += 7
-    doc.text(`置信水平: ${(sig.confidenceLevel * 100).toFixed(0)}%`, 14, y)
+    doc.text(`Confidence Level: ${(sig.confidenceLevel * 100).toFixed(0)}%`, margin, y)
     y += 7
-    doc.text(`结果显著: ${sig.isSignificant ? '是' : '否'}`, 14, y)
+    doc.text(`Significant: ${sig.isSignificant ? 'Yes' : 'No'}`, margin, y)
     y += 7
 
     if (sig.sampleSizeWarning) {
       doc.setTextColor(220, 53, 69)
-      doc.text('⚠ 警告: 样本量不足 ( < 100 )，结果可能不稳定', 14, y)
+      doc.text('Warning: Sample size < 100, results may be unstable', margin, y)
       doc.setTextColor(0, 0, 0)
       y += 7
     }
     y += 5
   }
 
+  if (y > pageHeight - 50) {
+    doc.addPage()
+    y = 20
+  }
+
+  const conclusionNum = chartElement
+    ? (report.significance ? '5' : '4')
+    : (report.significance ? '4' : '3')
+
   doc.setFontSize(14)
   doc.setFont('helvetica', 'bold')
-  doc.text('四、结论与建议', 14, y)
+  doc.text(`${conclusionNum}. Conclusion & Recommendation`, margin, y)
   y += 10
 
   doc.setFontSize(10)
   doc.setFont('helvetica', 'normal')
 
-  const recLines = doc.splitTextToSize(report.recommendation, pageWidth - 28)
+  const recLines = doc.splitTextToSize(report.recommendation, pageWidth - margin * 2)
   for (const line of recLines) {
-    if (y > 270) {
+    if (y > pageHeight - 20) {
       doc.addPage()
       y = 20
     }
-    doc.text(line, 14, y)
+    doc.text(line, margin, y)
     y += 7
   }
 
@@ -140,22 +198,11 @@ export async function exportReportPDF(report: ReportData): Promise<void> {
 
 function getExperimentStatusText(status: string): string {
   const map: Record<string, string> = {
-    draft: '草稿',
-    running: '运行中',
-    paused: '已暂停',
-    completed: '已完成',
-    archived: '已归档',
+    draft: 'Draft',
+    running: 'Running',
+    paused: 'Paused',
+    completed: 'Completed',
+    archived: 'Archived',
   }
   return map[status] || status
-}
-
-export async function exportChartAsImage(
-  chartElement: HTMLElement
-): Promise<string> {
-  const canvas = await html2canvas(chartElement, {
-    scale: 2,
-    useCORS: true,
-    backgroundColor: '#ffffff',
-  })
-  return canvas.toDataURL('image/png')
 }

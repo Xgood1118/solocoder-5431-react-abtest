@@ -5,7 +5,8 @@ export function trackEvent(
   eventName: string,
   experimentId: string,
   variantId: string,
-  properties?: Record<string, unknown>
+  properties?: Record<string, unknown>,
+  visitorId?: string
 ): void {
   try {
     const event: TrackedEvent = {
@@ -17,7 +18,7 @@ export function trackEvent(
       eventName,
       properties,
       timestamp: Date.now(),
-      visitorId: getVisitorId(),
+      visitorId: visitorId || getVisitorId(),
     }
 
     const events = storage.getEvents()
@@ -57,7 +58,8 @@ declare global {
       eventName: string,
       experimentId: string,
       variantId: string,
-      properties?: Record<string, unknown>
+      properties?: Record<string, unknown>,
+      visitorId?: string
     ) => void
   }
 }
@@ -68,10 +70,11 @@ export function initTrackingAPI(): void {
       eventName: string,
       experimentId: string,
       variantId: string,
-      properties?: Record<string, unknown>
+      properties?: Record<string, unknown>,
+      visitorId?: string
     ): void {
       try {
-        trackEvent(eventName, experimentId, variantId, properties)
+        trackEvent(eventName, experimentId, variantId, properties, visitorId)
       } catch (e) {
         console.warn('[ABTest] window.trackEvent error:', e)
       }

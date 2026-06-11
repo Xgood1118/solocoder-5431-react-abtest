@@ -23,11 +23,17 @@ export function calculateExperimentStats(
     const visitEvents = variantEvents.filter(e => e.eventName === 'page_view' || e.eventName === 'visit')
     const conversions = variantEvents.filter(e => e.eventName === experiment.goalEvent)
 
-    const uniqueVisitorIds = new Set(variantVisitors.map(v => v.visitorId))
+    const uniqueVisitorIdsFromRecords = new Set(variantVisitors.map(v => v.visitorId))
+    const uniqueVisitorIdsFromEvents = new Set(variantEvents.map(e => e.visitorId))
+    const uniqueVisitorIds = new Set([
+      ...uniqueVisitorIdsFromRecords,
+      ...uniqueVisitorIdsFromEvents,
+    ])
+
     const uniqueConversionIds = new Set(conversions.map(c => c.visitorId))
 
     const visits = visitEvents.length || variantVisitors.length
-    const uniqueVisitors = uniqueVisitorIds.size || variantVisitors.length
+    const uniqueVisitors = uniqueVisitorIds.size
     const conversionCount = uniqueConversionIds.size || conversions.length
 
     const conversionRate = uniqueVisitors > 0 ? conversionCount / uniqueVisitors : 0
